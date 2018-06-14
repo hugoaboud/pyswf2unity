@@ -12,29 +12,59 @@ import os
 #       CONFIG       #
 ##                  ##
 
-SWF_FILE = 'monica_walk_legs.swf'
+SWF_FILE = 'tests/monica_walk_body.swf'
 ANIM_TEMPLATE = 'templates/template.anim'
 SCALE = 0.05
 TERMINAL_LOG_LEVEL = logging.DEBUG
 
 ##                  ##
+#       UTIL         #
+##                  ##
+
+def _translation(matrix):
+    return [matrix[4]*SCALE,matrix[5]*SCALE]
+
+def _scale(matrix):
+    return [np.asscalar(np.linalg.norm([matrix[0],matrix[1]])),np.asscalar(np.linalg.norm([matrix[2],matrix[3]]))]
+
+def _rotation(matrix):
+    angle = np.asscalar(np.arctan2(matrix[0],matrix[1])*180/pi-90)
+    return angle;
+
+def _mult(a, b):
+    matrix_a = np.matrix([[a[0],a[2],a[4]],[a[1],a[3],a[5]],[0,0,1]])
+    matrix_b = np.matrix([[b[0],b[2],b[4]],[b[1],b[3],b[5]],[0,0,1]])
+    mult = (matrix_a * matrix_b).tolist()
+    return [mult[0][0],mult[1][0],mult[0][1],mult[1][1],mult[0][2],mult[1][2]]
+
+##                  ##
 #       MODEL        #
 ##                  ##
 
-class SWFShape:
+class SWFCharacter(object):
     def __init__(self, id):
         self.id = id
+        self.depth = -1
+    def name(self):
+        return '[CHAR|{}]'.format(self.id)
+
+class SWFShape(SWFCharacter):
+    def __init__(self, id):
+        self.display = False
+        super(SWFShape, self).__init__(id)
     def __str__(self):
+        return '[SHAPE|{}] display: {}'.format(self.id, self.display)
+    def name(self):
         return '[SHAPE|{}]'.format(self.id)
 
-class SWFSprite:
-    def __init__(self, id, shape):
-        self.id = id
+class SWFSprite(SWFCharacter):
+    def __init__(self, id, frameCount, shape):
+        super(SWFSprite, self).__init__(id)
+        self.frameCount = frameCount
         self.shape = shape
-        self.depth = -1
         self.matrix = None
     def __str__(self):
-        return '[SPRITE|{}] (shape.id: {}, depth: {}, matrix: {})'.format(self.id, self.shape.id, self.depth, self.matrix)
+        return '[SPRITE|{}] (shape.id: {}, frameCount: {}, depth: {}, matrix: {})'.format(self.id, self.shape.id, self.frameCount, self.depth, self.matrix)
     def name(self):
         return '[SPRITE|{}]'.format(self.id)
 
@@ -56,7 +86,7 @@ alias = SWF_FILE.split('.')[0];
 out_folder = './{}'.format(alias)
 logging.info('\t<directoy>\t"{}"'.format(os.path.dirname(os.path.abspath(__file__))))
 if os.path.exists(out_folder):
-    shutil.rmtree(out_folder, ignore_errors=True)
+    shutil.rmtree(out_folder)
 os.makedirs(out_folder)
 
 # Logfile
@@ -89,22 +119,21 @@ sprites = list()
 keyframes = list()
 keyframes.append(dict())
 
-# matrix utils
-def _translation(matrix):
-    return [matrix[4]*SCALE,matrix[5]*SCALE]
-
-def _scale(matrix):
-    return [np.asscalar(np.linalg.norm([matrix[0],matrix[1]])),np.asscalar(np.linalg.norm([matrix[2],matrix[3]]))]
-
-def _rotation(matrix):
-    angle = np.asscalar(np.arctan2(matrix[0],matrix[1])*180/pi-90)
-    return angle;
-
-def _mult(a, b):
-    matrix_a = np.matrix([[a[0],a[2],a[4]],[a[1],a[3],a[5]],[0,0,1]])
-    matrix_b = np.matrix([[b[0],b[2],b[4]],[b[1],b[3],b[5]],[0,0,1]])
-    mult = (matrix_a * matrix_b).tolist()
-    return [mult[0][0],mult[1][0],mult[0][1],mult[1][1],mult[0][2],mult[1][2]]
+class SWFCharacter:
+    @staticmethod
+    def getById(id):
+        shape = [s for s in shapes if s.id == tag.characterId]
+        sprite = [s for s in sprites if s.id == tag.characterId]
+        if (len(shape)): return shape[0]
+        elif (len(sprite)): return sprite[0]
+        else: return None
+    @staticmethod
+    def getByDepth(depth):
+        shape = [s for s in shapes if s.depth == tag.depth]
+        sprite = [s for s in sprites if s.depth == tag.depth]
+        if (len(shape)): return shape[0]
+        elif (len(sprite)): return sprite[0]
+        else: return None
 
 logging.info("<SWF> Starting modeling...")
 
@@ -113,8 +142,8 @@ lastDefinedShape = None
 lastDefinedSprite = None
 for tag in swf.tags:
 
-    # [DefineShape]
-    if (tag.type == 2):
+    # [DefineShape], [DefineShape2], [DefineShape3], [DefineShape4]
+    if (tag.type == 2 or tag.type == 22 or tag.type == 32 or tag.type == 83):
         # Create shape model
         lastDefinedShape = SWFShape(tag.characterId)
         logging.info("<SWF> {} created".format(lastDefinedShape))
@@ -125,7 +154,7 @@ for tag in swf.tags:
 
     # [DefineSprite]
     elif (tag.type == 39):
-        lastDefinedSprite = SWFSprite(tag.characterId, lastDefinedShape)
+        lastDefinedSprite = SWFSprite(tag.characterId, tag.frameCount, lastDefinedShape)
         for tagtag in tag.tags:
             # [PlaceObejct2]
             if (tagtag.type == 26):
@@ -137,25 +166,29 @@ for tag in swf.tags:
 
     # [PlaceObject2]
     elif (tag.type == 26):
-        # Find corresponding shape
-        sprite = [s for s in sprites if s.depth == tag.depth]
-        if (not len(sprite)):
-            if (tag.hasCharacter):
-                sprite = lastDefinedSprite
-                sprite.depth = tag.depth
-            else:
-                logging.error("<SWF> Couldn't find Sprite {}".format(tag.characterId))
-                continue
-        else:
-            sprite = sprite[0]
 
-        # If this PlaceObject changes the depth of a character, update depth
+        # Find character associated to this depth
+        character = SWFCharacter.getByDepth(tag.depth)
+
         if (tag.hasCharacter):
-            logging.debug("<SWF> Moving Sprite {} to depth {}".format(tag.characterId,tag.depth))
-            lastDefinedShape.depth = tag.depth
+            # If another character is in this depth, remove it and refer to the new
+            if (character != None and character.characterId != tag.characterId):
+                logging.debug("<SWF> Removing Character {} from depth {}".format(character.characterId,tag.depth))
+                character.depth = -1
+            # Find new character and set depth
+            character = SWFCharacter.getById(tag.characterId)
+            if (character != None):
+                logging.debug("<SWF> Moving Character {} to depth {}".format(tag.characterId,tag.depth))
+                character.depth = tag.depth
+            else:
+                logging.error("<SWF> Couldn't find Character {}".format(tag.characterId))
 
-        # Store matrix on current keyframe for sprite
-        keyframes[k][sprite] = _mult(tag.matrix.to_array(),sprite.matrix);
+        # Store matrix on current keyframe for character
+        if (type(character) == SWFSprite):
+            keyframes[k][character] = _mult(tag.matrix.to_array(),character.matrix)
+        elif (type(character) == SWFShape):
+            character.display = True
+            keyframes[k][character] = tag.matrix.to_array()
 
     # [ShowFrame]
     elif (tag.type == 1 and k < frame_count):
@@ -173,8 +206,8 @@ for sprite in sprites:
 logging.debug("<SWF> Keyframes:")
 for k, keyframe in enumerate(keyframes[:-1]):
     logging.debug("\t[K|{}]".format(k))
-    for sprite, matrix in keyframe.iteritems():
-        logging.debug("\t\t{} : matrix {}".format(sprite.name(), matrix))
+    for character, matrix in keyframe.iteritems():
+        logging.debug("\t\t{} : matrix {}".format(character.name(), matrix))
 
 ##        ##
 #   ANIM   #
@@ -202,46 +235,48 @@ anim['AnimationClip']['m_PositionCurves'] = []
 anim['AnimationClip']['m_ScaleCurves'] = []
 anim['AnimationClip']['m_EulerCurves'] = []
 
+animCharacters = sprites + [s for s in shapes if s.display]
+
 logging.info("<ANIM> Creating curves...")
 
 # Create curves for each registered shape
 positionCurves = dict()
 scaleCurves = dict()
 rotationCurves = dict()
-for sprite in sprites:
+for character in animCharacters:
     # Position
     positionCurve = dict({'curve':dict()})
     positionCurve['curve']['serializedVersion'] = 2
-    positionCurve['path'] = str(sprite.id)
+    positionCurve['path'] = str(character.id)
     positionCurve['curve']['m_PreInfinity'] = 2
     positionCurve['curve']['m_PostInfinity'] = 2
     positionCurve['curve']['m_RotationOrder'] = 4
     positionCurve['curve']['m_Curve'] = list()
-    positionCurves[sprite] = positionCurve
+    positionCurves[character] = positionCurve
     # Scale
     scaleCurve = dict({'curve':dict()})
     scaleCurve['curve']['serializedVersion'] = 2
-    scaleCurve['path'] = str(sprite.id)
+    scaleCurve['path'] = str(character.id)
     scaleCurve['curve']['m_PreInfinity'] = 2
     scaleCurve['curve']['m_PostInfinity'] = 2
     scaleCurve['curve']['m_RotationOrder'] = 4
     scaleCurve['curve']['m_Curve'] = list()
-    scaleCurves[sprite] = scaleCurve
+    scaleCurves[character] = scaleCurve
     # Rotation
     rotationCurve = dict({'curve':dict()})
     rotationCurve['curve']['serializedVersion'] = 2
-    rotationCurve['path'] = str(sprite.id)
+    rotationCurve['path'] = str(character.id)
     rotationCurve['curve']['m_PreInfinity'] = 2
     rotationCurve['curve']['m_PostInfinity'] = 2
     rotationCurve['curve']['m_RotationOrder'] = 4
     rotationCurve['curve']['m_Curve'] = list()
-    rotationCurves[sprite] = rotationCurve
+    rotationCurves[character] = rotationCurve
 
 logging.info("<ANIM> Populating curves...")
 
 # Populate curves with keyframes
 for i, keyframe in enumerate(keyframes):
-    for id, matrix in keyframe.iteritems():
+    for character, matrix in keyframe.iteritems():
         # Position
         translation = _translation(matrix)
         positionKeyframe = dict()
@@ -251,7 +286,7 @@ for i, keyframe in enumerate(keyframes):
         positionKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         positionKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         positionKeyframe['tangentMode'] = 0
-        positionCurves[id]['curve']['m_Curve'].append(positionKeyframe)
+        positionCurves[character]['curve']['m_Curve'].append(positionKeyframe)
         # Scale
         scale = _scale(matrix)
         scaleKeyframe = dict()
@@ -261,7 +296,7 @@ for i, keyframe in enumerate(keyframes):
         scaleKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         scaleKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         scaleKeyframe['tangentMode'] = 0
-        scaleCurves[id]['curve']['m_Curve'].append(scaleKeyframe)
+        scaleCurves[character]['curve']['m_Curve'].append(scaleKeyframe)
         # Rotation
         rotation = _rotation(matrix)
         rotationKeyframe = dict()
@@ -271,7 +306,7 @@ for i, keyframe in enumerate(keyframes):
         rotationKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         rotationKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
         rotationKeyframe['tangentMode'] = 0
-        rotationCurves[id]['curve']['m_Curve'].append(rotationKeyframe)
+        rotationCurves[character]['curve']['m_Curve'].append(rotationKeyframe)
 
 # Merge curves into template
 logging.info("<ANIM> Merging PositionCurves into template")
@@ -309,9 +344,9 @@ for curve in anim['AnimationClip']['m_EulerCurves']:
 #       OUTPUT       #
 ##                  ##
 
-logging.info("<ANIM> Exporting animation to {}/{}.anim".format(out_folder,alias))
+logging.info("<ANIM> Exporting animation to {}/{}.anim".format(out_folder,alias.split('/')[-1]))
 
-anim_file = open('{}/{}.anim'.format(out_folder,alias), 'wb')
+anim_file = open('{}/{}.anim'.format(out_folder,alias.split('/')[-1]), 'wb')
 anim_file.write("""%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
 --- !u!74 &7400000\n""")
