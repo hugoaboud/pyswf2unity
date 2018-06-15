@@ -1,4 +1,5 @@
 from swf.movie import SWF
+from swf.tag import TagShowFrame, TagPlaceObject, TagRemoveObject
 from swf.export import SingleShapeSVGExporter
 from io import BytesIO
 import yaml
@@ -12,7 +13,7 @@ import os
 #       CONFIG       #
 ##                  ##
 
-SWF_FILE = 'tests/monica_walk_body.swf'
+SWF_FILE = 'tests/elefanto1_2.swf'
 ANIM_TEMPLATE = 'templates/template.anim'
 SCALE = 0.05
 TERMINAL_LOG_LEVEL = logging.DEBUG
@@ -20,16 +21,6 @@ TERMINAL_LOG_LEVEL = logging.DEBUG
 ##                  ##
 #       UTIL         #
 ##                  ##
-
-def _translation(matrix):
-    return [matrix[4]*SCALE,matrix[5]*SCALE]
-
-def _scale(matrix):
-    return [np.asscalar(np.linalg.norm([matrix[0],matrix[1]])),np.asscalar(np.linalg.norm([matrix[2],matrix[3]]))]
-
-def _rotation(matrix):
-    angle = np.asscalar(np.arctan2(matrix[0],matrix[1])*180/pi-90)
-    return angle;
 
 def _mult(a, b):
     matrix_a = np.matrix([[a[0],a[2],a[4]],[a[1],a[3],a[5]],[0,0,1]])
@@ -42,31 +33,166 @@ def _mult(a, b):
 ##                  ##
 
 class SWFCharacter(object):
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, tag):
+        self.id = tag.characterId
         self.depth = -1
     def name(self):
         return '[CHAR|{}]'.format(self.id)
 
 class SWFShape(SWFCharacter):
-    def __init__(self, id):
-        self.display = False
-        super(SWFShape, self).__init__(id)
+    def __init__(self, tag):
+        self.bounds = tag.shape_bounds
+        super(SWFShape, self).__init__(tag)
     def __str__(self):
-        return '[SHAPE|{}] display: {}'.format(self.id, self.display)
+        return '[SHAPE|{}] centerMatrix: {}'.format(self.id, self.getCenterMatrix())
     def name(self):
         return '[SHAPE|{}]'.format(self.id)
+    def getCenterMatrix(self):
+        return [1,0,0,1,self.bounds.xmin+(self.bounds.xmax-self.bounds.xmin)/2,self.bounds.ymin+(self.bounds.ymax-self.bounds.ymin)/2]
+
+class SWFMorphShape(SWFShape):
+    def __init__(self, tag):
+        self.ratio = 0
+        tag.shape_bounds = tag.startBounds
+        super(SWFMorphShape, self).__init__(tag)
+    def __str__(self):
+        return '[MORPH|{}] centerMatrix: {}'.format(self.id, self.getCenterMatrix())
+    def name(self):
+        return '[MORPH|{}]'.format(self.id)
 
 class SWFSprite(SWFCharacter):
-    def __init__(self, id, frameCount, shape):
-        super(SWFSprite, self).__init__(id)
-        self.frameCount = frameCount
+    def __init__(self, tag, shape):
+        super(SWFSprite, self).__init__(tag)
+        self.frameCount = tag.frameCount
         self.shape = shape
         self.matrix = None
     def __str__(self):
         return '[SPRITE|{}] (shape.id: {}, frameCount: {}, depth: {}, matrix: {})'.format(self.id, self.shape.id, self.frameCount, self.depth, self.matrix)
     def name(self):
         return '[SPRITE|{}]'.format(self.id)
+
+class Keyframe(object):
+    def __init__(self, f, character, matrix, depth):
+        self.f = f
+        self.character = character
+        self.matrix = matrix
+        self.depth = depth
+    def dumpAnim(self):
+        dump = dict()
+        dump['serializedVersion'] = 2
+        dump['time'] = self.f/FRAME_RATE
+        dump['value'] = dict({'x': 0, 'y': 0, 'z': 0})
+        dump['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
+        dump['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
+        dump['tangentMode'] = 0
+        return dump
+    def getPositionKeyframe(self):
+        position = self.getPosition()
+        if (position == None): return None
+        keyframe = self.dumpAnim()
+        keyframe['value']['x'] = position[0]
+        keyframe['value']['y'] = position[1]
+        return keyframe
+    def getScaleKeyframe(self):
+        scale = self.getScale()
+        if (scale == None): return None
+        keyframe = self.dumpAnim()
+        keyframe['value']['x'] = scale[0]
+        keyframe['value']['y'] = scale[1]
+        return keyframe
+    def getEulerKeyframe(self):
+        euler = self.getEuler()
+        if (euler == None): return None
+        keyframe = self.dumpAnim()
+        keyframe['value']['z'] = euler
+        return keyframe
+    def getActiveKeyframe(self):
+        keyframe = self.dumpAnim()
+        keyframe['value'] = 1.0 if self.depth >= 0 else 0.0
+        return keyframe
+    def getPosition(self):
+        if (self.matrix == None): return None
+        return [self.matrix[4]*SCALE,self.matrix[5]*SCALE]
+    def getScale(self):
+        if (self.matrix == None): return None
+        return [np.asscalar(np.linalg.norm([self.matrix[0],self.matrix[1]])),np.asscalar(np.linalg.norm([self.matrix[2],self.matrix[3]]))]
+    def getEuler(self):
+        if (self.matrix == None): return None
+        euler = np.asscalar(np.arctan2(self.matrix[0],self.matrix[1])*180/pi-90)
+        return euler;
+
+class Curve(object):
+    class Type:
+        POSITION = 0,
+        SCALE = 1,
+        EULER = 2,
+        ACTIVE = 3
+    def __init__(self, type, character):
+        self.character = character
+        self.type = type
+        self.keyframes = list()
+    def dumpAnim(self):
+        dump = dict({'curve':dict()})
+        dump['curve']['serializedVersion'] = 2
+        dump['path'] = str(self.character.id)
+        dump['curve']['m_PreInfinity'] = 2
+        dump['curve']['m_PostInfinity'] = 2
+        dump['curve']['m_RotationOrder'] = 4
+        dump['curve']['m_Curve'] = self.keyframes
+        if (self.type == Curve.Type.ACTIVE):
+            dump['attribute'] = 'm_IsActive'
+            dump['classID'] = 1
+            dump['script'] = dict({'fileID':0})
+        return dump
+    def addKeyframe(self, keyframe):
+        #replace duplicates
+        for k, key in enumerate(self.keyframes):
+            if (key['time'] == keyframe['time']):
+                self.keyframes[k]['value'] = keyframe['time']
+        self.keyframes.append(keyframe)
+    def cleanup(self):
+        # insert default activeKeyframes on time 0 if the first keyframe
+        # on the timeline is not at time 0
+        # TODO: extend to every floatKeyframe
+        if (self.type == Curve.Type.ACTIVE):
+            if (len(self.keyframes) and self.keyframes[0]['time'] > 0):
+                self.keyframes.insert(0,Keyframe(0,self.character,None,-1).getActiveKeyframe())
+
+        # find and remove repeated keyframes
+        for k, keyframe in enumerate(self.keyframes[0:]):
+            if (keyframe['value'] == self.keyframes[k-1]['value']):
+                keyframe['repeated'] = True
+
+        for k, keyframe in enumerate(self.keyframes):
+            if ("repeated" in keyframe):
+                if (k < len(self.keyframes)-1):
+                    if ("repeated" in self.keyframes[k+1]):
+                        keyframe['delete'] = True
+                del(keyframe['repeated'])
+        self.keyframes = [keyframe for keyframe in self.keyframes if not ("delete" in keyframe)]
+
+class Timeline(object):
+    def __init__(self, frameCount):
+        self.frameCount = frameCount
+        self.frames = list()
+        for _ in range(frameCount):
+            self.frames.append(list())
+        self.curves = list()
+    def addKeyframe(self, keyframe):
+        self.frames[keyframe.f].append(keyframe)
+    def addCurveKeyframe(self, f, character, type, keyframe):
+        curve = [c for c in self.curves if (c.character == character and c.type == type)]
+        if not(len(curve)):
+            logging.error("<ANIM> No curve found for character {} with type {}".format(character.name(), type))
+            return
+        curve = curve[0]
+        curve.addKeyframe(keyframe)
+    def getKeyframes(self, f):
+        return self.frames[f]
+    def getStartTime(self):
+            return 0
+    def getStopTime(self):
+            return (self.frameCount-1)/FRAME_RATE
 
 ##                  ##
 #       SETUP        #
@@ -98,11 +224,39 @@ logging.info('\t<alias>\t\t"{}"'.format(alias))
 logging.info('\t<logfile>\t"{}"'.format('./{}/conversion.log'.format(alias)))
 
 ##              ##
-#       SWF      #
+#       SVG      #
 ##              ##
 
+class SingleShapeFrameSVGExporter(SingleShapeSVGExporter):
+
+    def export_single_shape(self, shape_tag, swf, frame):
+        self.frame = frame
+        return super(SingleShapeFrameSVGExporter, self).export_single_shape(shape_tag, swf)
+
+    def get_display_tags(self, tags, z_sorted=True):
+        current_frame = 0
+        frame_tags = dict() # keys are depths, values are placeobject tags
+        for tag in tags:
+            if isinstance(tag, TagShowFrame):
+                if current_frame == self.frame:
+                    break
+                current_frame += 1
+            elif isinstance(tag, TagPlaceObject):
+                if current_frame == self.frame:
+                    frame_tags[tag.depth] = tag
+
+            elif isinstance(tag, TagRemoveObject):
+                del frame_tags[tag.depth]
+
+        return super(SingleShapeFrameSVGExporter, self).get_display_tags(tags, z_sorted)
+        return super(SingleShapeFrameSVGExporter, self).get_display_tags(frame_tags.values(), z_sorted)
+
 # SVG (export mesh)
-SVGExporter = SingleShapeSVGExporter()
+SVGExporter = SingleShapeFrameSVGExporter()
+
+##              ##
+#       SWF      #
+##              ##
 
 # load and parse the SWF
 logging.info("")
@@ -116,8 +270,7 @@ logging.debug(swf)
 # model data
 shapes = list()
 sprites = list()
-keyframes = list()
-keyframes.append(dict())
+timeline = Timeline(frame_count)
 
 class SWFCharacter:
     @staticmethod
@@ -137,7 +290,7 @@ class SWFCharacter:
 
 logging.info("<SWF> Starting modeling...")
 
-k = 0
+f = 0
 lastDefinedShape = None
 lastDefinedSprite = None
 for tag in swf.tags:
@@ -145,16 +298,16 @@ for tag in swf.tags:
     # [DefineShape], [DefineShape2], [DefineShape3], [DefineShape4]
     if (tag.type == 2 or tag.type == 22 or tag.type == 32 or tag.type == 83):
         # Create shape model
-        lastDefinedShape = SWFShape(tag.characterId)
+        lastDefinedShape = SWFShape(tag)
         logging.info("<SWF> {} created".format(lastDefinedShape))
         shapes.append(lastDefinedShape)
         # Export shape as SVG file
         logging.info("<SVG> Exporting shape {} to {}/{}.svg".format(tag.characterId,out_folder,tag.characterId))
-        open('./{}/{}.svg'.format(out_folder,tag.characterId), 'wb').write(SVGExporter.export_single_shape(tag, swf).read())
+        open('./{}/{}.svg'.format(out_folder,tag.characterId), 'wb').write(SVGExporter.export_single_shape(tag, swf, 0).read())
 
     # [DefineSprite]
     elif (tag.type == 39):
-        lastDefinedSprite = SWFSprite(tag.characterId, tag.frameCount, lastDefinedShape)
+        lastDefinedSprite = SWFSprite(lastDefinedShape)
         for tagtag in tag.tags:
             # [PlaceObejct2]
             if (tagtag.type == 26):
@@ -164,6 +317,15 @@ for tag in swf.tags:
         logging.info("<SWF> {} created".format(lastDefinedSprite))
         sprites.append(lastDefinedSprite)
 
+    # [DefineMorphShape]
+    elif tag.type == 46:
+        lastDefinedShape = SWFMorphShape(tag)
+        logging.info("<SWF> {} created".format(lastDefinedShape))
+        shapes.append(lastDefinedShape)
+        # Export morph shape as SVG file
+        logging.info("<SVG> Exporting morph shape {} to {}/{}.svg".format(tag.characterId,out_folder,tag.characterId))
+        open('./{}/{}.svg'.format(out_folder,tag.characterId), 'wb').write(SVGExporter.export_single_shape(tag, swf, 0).read())
+
     # [PlaceObject2]
     elif (tag.type == 26):
 
@@ -172,28 +334,35 @@ for tag in swf.tags:
 
         if (tag.hasCharacter):
             # If another character is in this depth, remove it and refer to the new
-            if (character != None and character.characterId != tag.characterId):
-                logging.debug("<SWF> Removing Character {} from depth {}".format(character.characterId,tag.depth))
+            if (character != None and character.id != tag.characterId):
+                logging.debug("<SWF> Removing [CHAR|{}] from depth {}".format(character.id,tag.depth))
                 character.depth = -1
+                timeline.addKeyframe(Keyframe(f, character, None, -1))
             # Find new character and set depth
             character = SWFCharacter.getById(tag.characterId)
             if (character != None):
-                logging.debug("<SWF> Moving Character {} to depth {}".format(tag.characterId,tag.depth))
+                logging.debug("<SWF> Moving [CHAR|{}] to depth {}".format(tag.characterId,tag.depth))
                 character.depth = tag.depth
             else:
-                logging.error("<SWF> Couldn't find Character {}".format(tag.characterId))
+                logging.error("<SWF> Couldn't find [CHAR|{}]".format(tag.characterId))
+                continue
 
-        # Store matrix on current keyframe for character
-        if (type(character) == SWFSprite):
-            keyframes[k][character] = _mult(tag.matrix.to_array(),character.matrix)
-        elif (type(character) == SWFShape):
-            character.display = True
-            keyframes[k][character] = tag.matrix.to_array()
+        matrix = None
+        if tag.hasMatrix:
+            matrix =  tag.matrix.to_array()
+        elif tag.hasCharacter:
+            matrix = [1,0,0,1,0,0]
+        if matrix != None:
+            if (isinstance(character,SWFSprite)): matrix = _mult(matrix,character.matrix)
+            elif (isinstance(character,SWFShape)): matrix = _mult(matrix,character.getCenterMatrix())
+
+        logging.debug("<SWF> f{} [CHAR|{}] matrix: {}, depth: {}".format(f, tag.characterId, matrix, tag.depth))
+        timeline.addKeyframe(Keyframe(f, character, matrix, tag.depth))
 
     # [ShowFrame]
-    elif (tag.type == 1 and k < frame_count):
-        k += 1;
-        keyframes.append(dict())
+    elif (tag.type == 1 and f < frame_count):
+        logging.debug("<SWF> Show frame: {}".format(f))
+        f += 1;
 
 ## Debug Output
 
@@ -204,28 +373,28 @@ logging.debug("<SWF> Sprites:")
 for sprite in sprites:
     logging.debug('\t{}'.format(sprite))
 logging.debug("<SWF> Keyframes:")
-for k, keyframe in enumerate(keyframes[:-1]):
-    logging.debug("\t[K|{}]".format(k))
-    for character, matrix in keyframe.iteritems():
-        logging.debug("\t\t{} : matrix {}".format(character.name(), matrix))
+for f, frame in enumerate(timeline.frames):
+    logging.debug("\t[frame{}]".format(f))
+    for k, keyframe in enumerate(frame):
+        logging.debug("\t\t[key{}] : character {} : matrix {} : depth {}".format(k, keyframe.character.name(), keyframe.matrix, keyframe.depth))
 
 ##        ##
 #   ANIM   #
 #   save   #
 ##        ##
 
-logging.info("<ANIM> Parsing template file")
+logging.info("<ANIM> Parsing template file {}".format(ANIM_TEMPLATE))
 anim_template = open(ANIM_TEMPLATE, 'r')
 try:
     anim = yaml.load(anim_template)
 except yaml.YAMLError as exc:
-    print(exc)
+    logging.error(exc)
 
 # Set template sample/frame rate
 anim['AnimationClip']['m_Name'] = alias
 anim['AnimationClip']['m_SampleRate'] = FRAME_RATE
-anim['AnimationClip']['m_AnimationClipSettings']['m_StartTime'] = 0
-anim['AnimationClip']['m_AnimationClipSettings']['m_StopTime'] = (len(keyframes)-1)/FRAME_RATE
+anim['AnimationClip']['m_AnimationClipSettings']['m_StartTime'] = timeline.getStartTime()
+anim['AnimationClip']['m_AnimationClipSettings']['m_StopTime'] = timeline.getStopTime()
 
 logging.info("<ANIM> Writing header\n\t\tm_Name : {}\n\t\tm_SampleRate : {}\n\t\tm_StartTime : {}\n\t\tm_StopTime : {}".format(anim['AnimationClip']['m_Name'], FRAME_RATE, 0, (frame_count-1)/FRAME_RATE))
 
@@ -235,100 +404,70 @@ anim['AnimationClip']['m_PositionCurves'] = []
 anim['AnimationClip']['m_ScaleCurves'] = []
 anim['AnimationClip']['m_EulerCurves'] = []
 
-animCharacters = sprites + [s for s in shapes if s.display]
-
 logging.info("<ANIM> Creating curves...")
 
 # Create curves for each registered shape
-positionCurves = dict()
-scaleCurves = dict()
-rotationCurves = dict()
+animCharacters = sprites + shapes
 for character in animCharacters:
-    # Position
-    positionCurve = dict({'curve':dict()})
-    positionCurve['curve']['serializedVersion'] = 2
-    positionCurve['path'] = str(character.id)
-    positionCurve['curve']['m_PreInfinity'] = 2
-    positionCurve['curve']['m_PostInfinity'] = 2
-    positionCurve['curve']['m_RotationOrder'] = 4
-    positionCurve['curve']['m_Curve'] = list()
-    positionCurves[character] = positionCurve
-    # Scale
-    scaleCurve = dict({'curve':dict()})
-    scaleCurve['curve']['serializedVersion'] = 2
-    scaleCurve['path'] = str(character.id)
-    scaleCurve['curve']['m_PreInfinity'] = 2
-    scaleCurve['curve']['m_PostInfinity'] = 2
-    scaleCurve['curve']['m_RotationOrder'] = 4
-    scaleCurve['curve']['m_Curve'] = list()
-    scaleCurves[character] = scaleCurve
-    # Rotation
-    rotationCurve = dict({'curve':dict()})
-    rotationCurve['curve']['serializedVersion'] = 2
-    rotationCurve['path'] = str(character.id)
-    rotationCurve['curve']['m_PreInfinity'] = 2
-    rotationCurve['curve']['m_PostInfinity'] = 2
-    rotationCurve['curve']['m_RotationOrder'] = 4
-    rotationCurve['curve']['m_Curve'] = list()
-    rotationCurves[character] = rotationCurve
+    timeline.curves.append(Curve(Curve.Type.POSITION, character))
+    timeline.curves.append(Curve(Curve.Type.SCALE, character))
+    timeline.curves.append(Curve(Curve.Type.EULER, character))
+    timeline.curves.append(Curve(Curve.Type.ACTIVE, character))
 
+print(timeline.curves)
 logging.info("<ANIM> Populating curves...")
 
 # Populate curves with keyframes
-for i, keyframe in enumerate(keyframes):
-    for character, matrix in keyframe.iteritems():
+for f, frame in enumerate(timeline.frames):
+    for k, keyframe in enumerate(frame):
         # Position
-        translation = _translation(matrix)
-        positionKeyframe = dict()
-        positionKeyframe['serializedVersion'] = 2
-        positionKeyframe['time'] = i/FRAME_RATE
-        positionKeyframe['value'] = dict({'x': translation[0], 'y': -translation[1], 'z': 0})
-        positionKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        positionKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        positionKeyframe['tangentMode'] = 0
-        positionCurves[character]['curve']['m_Curve'].append(positionKeyframe)
+        positionKeyframe = keyframe.getPositionKeyframe()
+        if (positionKeyframe != None):
+            timeline.addCurveKeyframe(f, keyframe.character, Curve.Type.POSITION, positionKeyframe)
         # Scale
-        scale = _scale(matrix)
-        scaleKeyframe = dict()
-        scaleKeyframe['serializedVersion'] = 2
-        scaleKeyframe['time'] = i/FRAME_RATE
-        scaleKeyframe['value'] = dict({'x': scale[0], 'y': scale[1], 'z': 0})
-        scaleKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        scaleKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        scaleKeyframe['tangentMode'] = 0
-        scaleCurves[character]['curve']['m_Curve'].append(scaleKeyframe)
-        # Rotation
-        rotation = _rotation(matrix)
-        rotationKeyframe = dict()
-        rotationKeyframe['serializedVersion'] = 2
-        rotationKeyframe['time'] = i/FRAME_RATE
-        rotationKeyframe['value'] = dict({'x': 0, 'y': 0, 'z': rotation})
-        rotationKeyframe['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        rotationKeyframe['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-        rotationKeyframe['tangentMode'] = 0
-        rotationCurves[character]['curve']['m_Curve'].append(rotationKeyframe)
+        scaleKeyframe = keyframe.getScaleKeyframe()
+        if (scaleKeyframe != None):
+            timeline.addCurveKeyframe(f, keyframe.character, Curve.Type.SCALE, scaleKeyframe)
+        # Euler (rotation)
+        eulerKeyframe = keyframe.getEulerKeyframe()
+        if (eulerKeyframe != None):
+            timeline.addCurveKeyframe(f, keyframe.character, Curve.Type.EULER, eulerKeyframe)
+        # Active keyframe
+        activeKeyframe = keyframe.getActiveKeyframe()
+        if (activeKeyframe != None):
+            timeline.addCurveKeyframe(f, keyframe.character, Curve.Type.ACTIVE, activeKeyframe)
 
 # Merge curves into template
-logging.info("<ANIM> Merging PositionCurves into template")
-for positionCurve in positionCurves.values():
-    anim['AnimationClip']['m_PositionCurves'].append(positionCurve)
+for curve in timeline.curves:
+    curve.cleanup()
+    type = ''
+    tag = ''
+    if (curve.type == Curve.Type.POSITION):
+        type = 'PositionCurve'
+        tag = 'm_PositionCurves'
+    elif (curve.type == Curve.Type.SCALE):
+        type = 'ScaleCurve'
+        tag = 'm_ScaleCurves'
+    elif (curve.type == Curve.Type.EULER):
+        type = 'EulerCurve'
+        tag = 'm_EulerCurves'
+    elif (curve.type == Curve.Type.ACTIVE):
+        type = 'ActiveCurve'
+        tag = 'm_FloatCurves'
+        print(curve.keyframes)
 
-logging.info("<ANIM> Merging ScaleCurves into template")
-for scaleCurve in scaleCurves.values():
-    anim['AnimationClip']['m_ScaleCurves'].append(scaleCurve)
+    logging.info('<ANIM> Merging {}|{} into template'.format(type, curve.character.id))
+    anim['AnimationClip'][tag].append(curve.dumpAnim())
 
-logging.info("<ANIM> Merging EulerCurves into template")
-for rotationCurve in rotationCurves.values():
-    anim['AnimationClip']['m_EulerCurves'].append(rotationCurve)
 
 ## Debug Output
 
-logging.debug("<ANIM> Keyframes created:")
-logging.debug("\tPosition:")
+logging.debug('<ANIM> Keyframes created:')
+logging.debug('\tPosition:')
 for curve in anim['AnimationClip']['m_PositionCurves']:
-    logging.debug("\t\tpath: {}".format(curve['path']))
+    logging.debug('\t\tpath: {}'.format(curve['path']))
     for keyframe in curve['curve']['m_Curve']:
-        logging.debug("\t\t{}".format(keyframe))
+        logging.debug('\t\t{}'.format(keyframe))
 logging.debug("\tScale:")
 for curve in anim['AnimationClip']['m_ScaleCurves']:
     logging.debug("\tpath: {}".format(curve['path']))
@@ -336,6 +475,11 @@ for curve in anim['AnimationClip']['m_ScaleCurves']:
         logging.debug("\t\t{}".format(keyframe))
 logging.debug("\tRotation:")
 for curve in anim['AnimationClip']['m_EulerCurves']:
+    logging.debug("\tpath: {}".format(curve['path']))
+    for keyframe in curve['curve']['m_Curve']:
+        logging.debug("\t\t{}".format(keyframe))
+logging.debug("\Float:")
+for curve in anim['AnimationClip']['m_FloatCurves']:
     logging.debug("\tpath: {}".format(curve['path']))
     for keyframe in curve['curve']['m_Curve']:
         logging.debug("\t\t{}".format(keyframe))
