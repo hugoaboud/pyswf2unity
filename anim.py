@@ -173,6 +173,24 @@ class AnimDocument(object):
         def default(self):
             return self.active == 1.0
 
+    class FrameKeyframe(Keyframe):
+        def __init__(self, frame, frameRate):
+            super(AnimDocument.FrameKeyframe, self).__init__(frame, frameRate)
+            self.frame = frame.f
+        def dump(self):
+            dump = super(AnimDocument.FrameKeyframe, self).dump()
+            dump['value'] = self.frame
+            dump['tangentMode'] = 103
+            dump['inSlope'] = 'Infinity'
+            dump['outSlope'] = 'Infinity'
+            return dump
+        def __str__(self):
+            return "[FrameKeyframe|{:.3f}] {}".format(self.time, self.f)
+        def equals(self, other):
+            return self.f == other.f
+        def default(self):
+            return self.f == 0
+
     class Timeline(object):
         def __init__(self, anim):
             self.anim = anim
@@ -327,8 +345,7 @@ class AnimDocument(object):
             logging.info('<Anim> Merging {} into template'.format(curve))
             anim['AnimationClip'][tag].append(curve.dump())
 
-
-        logging.info("<Anim> Exporting animation to {}.anim".format(self.swf.alias.split('/')[-1]))
-        anim_file = open('{}/{}.anim'.format(folder,self.swf.alias.split('/')[-1]), 'wb')
+        logging.info("<Anim> Exporting animation to {}.anim".format(self.swf.alias))
+        anim_file = open('{}/{}.anim'.format(folder,self.swf.alias), 'wb')
         anim_file.write("%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!74 &0\n")
         anim_file.write(yaml.dump(anim))

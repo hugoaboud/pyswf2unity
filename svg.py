@@ -3,11 +3,15 @@ from swf.export import SVGExporter
 from swf.tag import TagShowFrame, TagPlaceObject, TagRemoveObject, TagDefineShape, TagDefineMorphShape
 from swf.export import XLINK_HREF
 
+from model import TMatrix
+from config import unit_divisor
+
 class ComposedSVGExporter(SVGExporter):
     """
     An SVG exporter which knows how to export a single shape.
     """
-    def __init__(self, margin=0):
+    def __init__(self, document, margin=0):
+        self.document = document
         self.frame = None
         self.shape_tags = []
         super(ComposedSVGExporter, self).__init__(margin = margin)
@@ -60,6 +64,20 @@ class ComposedSVGExporter(SVGExporter):
                         if tag.characterId not in [t.characterId for t in display_tags]:
                             if (hasattr(shape_tag,'f')):
                                 tag.f = shape_tag.f
+                            if (self.document.groupByDepth):
+                                layer, frame = SVGDocument.Layer.getFrameById(self.document.layers, tag.characterId)
+                                if layer:
+                                    if frame.f == 0:
+                                        bounds = shape_tag.shape_bounds
+                                        layer.center = [bounds.xmin + (bounds.xmax-bounds.xmin)/2, bounds.ymin + (bounds.ymax - bounds.ymin)/2]
+                                        tag.matrix = TMatrix().getSWFMatrix()
+                                    else:
+                                        bounds = shape_tag.shape_bounds
+                                        fpos = [bounds.xmin + (bounds.xmax-bounds.xmin)/2, bounds.ymin + (bounds.ymax - bounds.ymin)/2]
+                                        tag.matrix = TMatrix().setPosition([
+                                                        layer.center[0] - fpos[0],
+                                                        layer.center[1] - fpos[1]]
+                                                     ).getSWFMatrix()
                             display_tags.append(tag)
         return super(ComposedSVGExporter, self).get_display_tags(display_tags, z_sorted)
 
@@ -92,15 +110,24 @@ class SVGDocument(object):
         def __init__(self, name):
             self.name = name
             self.frames = list()
-        def addFrame(self, tag):
-            self.frames.append(SVGDocument.Frame(len(self.frames),tag))
+            self.center = [0,0]
+        def addFrame(self, id):
+            frame = SVGDocument.Frame(len(self.frames),id)
+            self.frames.append(frame)
         def __str__(self):
             return self.name
+        @staticmethod
+        def getFrameById(layers, id):
+            for layer in layers:
+                for frame in layer.frames:
+                    if frame.id == id:
+                        return [layer, frame]
 
     def __init__(self, swfDocument, groupByDepth = True):
-        self.exporter = ComposedSVGExporter()
+        self.exporter = ComposedSVGExporter(self)
         self.swf = swfDocument
         self.groupByDepth = groupByDepth
+        self.layers = []
         self.parse()
 
     def parse(self):
@@ -113,6 +140,7 @@ class SVGDocument(object):
                 for id in ids:
                     layer.addFrame(id)
                 self.layers.append(layer)
+
 
             logging.debug("<SVG> Layers:")
             for l, layer in enumerate(self.layers):
@@ -139,5 +167,5 @@ class SVGDocument(object):
                 open('{}/{}.svg'.format(folder,shape.id), 'wb').write(self.exporter.export_shape(shape, self.swf.swf).read())
 
         if all:
-            logging.info("<SVG> Exporting all frames to {}/{}.svg".format(folder,self.swf.alias.split('/')[-1]))
-            open('{}/{}.svg'.format(folder,self.swf.alias.split('/')[-1]), 'wb').write(self.exporter.export_all(self.swf.swf).read())
+            logging.info("<SVG> Exporting all frames to {}/{}.svg".format(folder,self.swf.alias))
+            open('{}/{}.svg'.format(folder,self.swf.alias), 'wb').write(self.exporter.export_all(self.swf.swf).read())

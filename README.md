@@ -18,7 +18,6 @@
 ##### todo + known bugs
 * Center around first frame of given character
 * FrameKeyframe for selecting layer to display on Unity, configurable path
-* BUG: Messed up scale/position of elements on Unity (?)
 * BUG: MorphShape color is wrong, should come from fillStyles
 
 ##### no-features

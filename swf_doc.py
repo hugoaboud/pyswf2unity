@@ -62,7 +62,7 @@ class SWFDocument(object):
         # load and parse the SWF
         logging.info("<SWF> Starting parse...")
         self.swf = SWF(open(file, 'rb'))
-        self.alias = file.split('.')[0];
+        self.alias = file.split('.')[0].split('/')[-1];
         self.frameRate = self.swf.header.frame_rate
         self.frameCount = self.swf.header.frame_count
 
