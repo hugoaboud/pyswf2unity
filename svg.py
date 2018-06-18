@@ -2,6 +2,7 @@ import logging
 from swf.export import SVGExporter
 from swf.tag import TagShowFrame, TagPlaceObject, TagRemoveObject, TagDefineShape, TagDefineMorphShape
 from swf.export import XLINK_HREF
+from lxml import etree
 
 from model import TMatrix
 from config import unit_divisor
@@ -86,14 +87,14 @@ class ComposedSVGExporter(SVGExporter):
         super(ComposedSVGExporter, self).export_define_shape(tag)
         shape = self.shape_exporter.g
         if (hasattr(tag,'f')):
-            shape.set("id", "%d" % tag.f)
+            shape.set("id", "f:%d" % tag.f)
         else:
             shape.set("id", "%d" % tag.characterId)
 
     def export_display_list_item(self, tag, parent=None):
         use = super(ComposedSVGExporter, self).export_display_list_item(tag, parent)
         if (hasattr(tag,'f')):
-            use.set(XLINK_HREF, "#%s" % tag.f)
+            use.set(XLINK_HREF, "#f:%s" % tag.f)
         else:
             use.set(XLINK_HREF, "#%s" % tag.characterId)
         return use

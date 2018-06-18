@@ -108,13 +108,13 @@ class SWFDocument(object):
                         break
                     print(tagtag)
                 logging.info("<SWF> {} created".format(lastDefinedSprite))
-                sprites.append(lastDefinedSprite)
+                self.sprites.append(lastDefinedSprite)
 
             # [DefineMorphShape]
             elif tag.type == 46:
                 lastDefinedShape = self.MorphShape(tag)
                 logging.info("<SWF> {} created".format(lastDefinedShape))
-                shapes.append(lastDefinedShape)
+                self.shapes.append(lastDefinedShape)
 
             # [PlaceObject2]
             elif (tag.type == 26):

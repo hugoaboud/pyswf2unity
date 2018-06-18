@@ -3,6 +3,7 @@ from numpy.linalg import norm
 from swf.data import SWFMatrix
 
 from config import unit_divisor
+
 ##
 #   Transformation Matrix
 ##
@@ -61,13 +62,26 @@ class AnimType:
     SCALE = 1
     EULER = 2
     ISACTIVE = 3
+    FRAME = 4
 
     @staticmethod
     def Name(type):
         return {
             -1:"Invalid",
-            0:"Position",
-            1:"Scale",
-            2:"Euler",
-            3:"IsActive"
+            AnimType.POSITION:"Position",
+            AnimType.SCALE:"Scale",
+            AnimType.EULER:"Euler",
+            AnimType.ISACTIVE:"IsActive",
+            AnimType.FRAME:"Frame"
         }.get(type, -1);
+
+    @staticmethod
+    def Keyframe(keyframe):
+        return {
+            -1:None,
+            "PositionKeyframe":AnimType.POSITION,
+            "ScaleKeyframe":AnimType.SCALE,
+            "EulerKeyframe":AnimType.EULER,
+            "IsActiveKeyframe":AnimType.ISACTIVE,
+            "FrameKeyframe":AnimType.FRAME
+        }.get(keyframe.__class__.__name__, -1)

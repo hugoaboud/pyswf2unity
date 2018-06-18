@@ -1,7 +1,7 @@
 import logging
 import yaml
 
-from config import ANIM_TEMPLATE
+from config import ANIM_TEMPLATE, FRAMEKEYFRAME_PATH
 from model import AnimType
 
 class AnimDocument(object):
@@ -22,6 +22,10 @@ class AnimDocument(object):
             dump['curve']['m_Curve'] = [k.dump() for k in self.keyframes]
             if (self.type == AnimType.ISACTIVE):
                 dump['attribute'] = 'm_IsActive'
+                dump['classID'] = 1
+                dump['script'] = dict({'fileID':0})
+            elif (self.type == AnimType.FRAME):
+                dump['attribute'] = 'frame'
                 dump['classID'] = 1
                 dump['script'] = dict({'fileID':0})
             return dump
@@ -85,7 +89,7 @@ class AnimDocument(object):
             return dump
         def set(self, keyframe):
             keyframe.time = self.time
-            return
+            return self
         def __str__(self):
             return "[Keyframe|{}]".format(self.time)
         def equals(self, other):
@@ -104,8 +108,9 @@ class AnimDocument(object):
             dump['value']['y'] = -self.position[1]
             return dump
         def set(self, keyframe):
+            dump = super(AnimDocument.PositionKeyframe, self).set(keyframe)
             self.position = keyframe.position
-            return
+            return self
         def __str__(self):
             return "[PositionKeyframe|{:.3f}] {}".format(self.time, self.position)
         def equals(self, other):
@@ -124,8 +129,9 @@ class AnimDocument(object):
             dump['value']['y'] = self.scale[1]
             return dump
         def set(self, keyframe):
+            dump = super(AnimDocument.ScaleKeyframe, self).set(keyframe)
             self.scale = keyframe.scale
-            return
+            return self
         def __str__(self):
             return "[ScaleKeyframe|{:.3f}] {}".format(self.time, self.scale)
         def equals(self, other):
@@ -143,8 +149,9 @@ class AnimDocument(object):
             dump['value']['z'] = self.euler
             return dump
         def set(self, keyframe):
+            dump = super(AnimDocument.EulerKeyframe, self).set(keyframe)
             self.euler = keyframe.euler
-            return
+            return self
         def __str__(self):
             return "[EulerKeyframe|{:.3f}] {}".format(self.time, self.euler)
         def equals(self, other):
@@ -164,8 +171,9 @@ class AnimDocument(object):
             dump['outSlope'] = 'Infinity'
             return dump
         def set(self, keyframe):
+            dump = super(AnimDocument.IsActiveKeyframe, self).set(keyframe)
             self.active = keyframe.active
-            return
+            return self
         def __str__(self):
             return "[IsActiveKeyframe|{:.3f}] {}".format(self.time, self.active)
         def equals(self, other):
@@ -176,14 +184,21 @@ class AnimDocument(object):
     class FrameKeyframe(Keyframe):
         def __init__(self, frame, frameRate):
             super(AnimDocument.FrameKeyframe, self).__init__(frame, frameRate)
-            self.frame = frame.f
+            if frame.depth >= 0:
+                self.f = frame.f
+            else:
+                self.f = 0
         def dump(self):
             dump = super(AnimDocument.FrameKeyframe, self).dump()
-            dump['value'] = self.frame
+            dump['value'] = self.f
             dump['tangentMode'] = 103
             dump['inSlope'] = 'Infinity'
             dump['outSlope'] = 'Infinity'
             return dump
+        def set(self, keyframe):
+            dump = super(AnimDocument.FrameKeyframe, self).set(keyframe)
+            self.f = keyframe.f
+            return self
         def __str__(self):
             return "[FrameKeyframe|{:.3f}] {}".format(self.time, self.f)
         def equals(self, other):
@@ -200,10 +215,10 @@ class AnimDocument(object):
         def addCurve(self, curve):
             curve.timeline = self
             self.curves.append(curve)
-        def addCurveKeyframe(self, f, object, type, keyframe):
-            curve = [c for c in self.curves if (c.object == object and c.type == type)]
+        def addCurveKeyframe(self, f, object, keyframe):
+            curve = [c for c in self.curves if (c.object == object and c.type == AnimType.Keyframe(keyframe))]
             if not len(curve):
-                logging.error("<Anim> No curve found for object '{}' with type {}".format(object.name, AnimType.Name(type)))
+                logging.error("<Anim> No curve found for object '{}' with type {}".format(object.name, AnimType.Name(AnimType.Keyframe(keyframe))))
                 return
             curve = curve[0]
             curve.addKeyframe(keyframe)
@@ -260,32 +275,48 @@ class AnimDocument(object):
             self.timeline.addCurve(AnimDocument.Curve(AnimType.SCALE, object))
             self.timeline.addCurve(AnimDocument.Curve(AnimType.EULER, object))
             self.timeline.addCurve(AnimDocument.Curve(AnimType.ISACTIVE, object))
+            self.timeline.addCurve(AnimDocument.Curve(AnimType.FRAME, object))
 
         logging.info("<Anim> Populating curves with keyframes...")
 
         # Populate curves with keyframes
-        for f, time in enumerate(self.swf.frames):
-            for k, frame in enumerate(time):
+        for f, frames in enumerate(self.swf.frames):
+            for frame in frames:
+                frameRate = self.swf.frameRate
+                time = f/frameRate
+                layerFrame = objects.byId(frame.char.id)
                 try:
                     # Position
-                    positionKeyframe = AnimDocument.PositionKeyframe(frame, self.swf.frameRate)
-                    self.timeline.addCurveKeyframe(f/self.swf.frameRate, objects.byId(frame.char.id)[0], AnimType.POSITION, positionKeyframe)
+                    positionKeyframe = AnimDocument.PositionKeyframe(frame, frameRate)
+                    self.timeline.addCurveKeyframe(time, layerFrame[0], positionKeyframe)
                 except AssertionError, e: pass
+
+                # Scale
                 try:
-                    # Scale
-                    scaleKeyframe = AnimDocument.ScaleKeyframe(frame, self.swf.frameRate)
-                    self.timeline.addCurveKeyframe(f/self.swf.frameRate, objects.byId(frame.char.id)[0], AnimType.SCALE, scaleKeyframe)
+                    scaleKeyframe = AnimDocument.ScaleKeyframe(frame, frameRate)
+                    self.timeline.addCurveKeyframe(time, layerFrame[0], scaleKeyframe)
                 except AssertionError, e: pass
+
+                # Euler (rotation)
                 try:
-                    # Euler (rotation)
-                    eulerKeyframe = AnimDocument.EulerKeyframe(frame, self.swf.frameRate)
-                    self.timeline.addCurveKeyframe(f/self.swf.frameRate, objects.byId(frame.char.id)[0], AnimType.EULER, eulerKeyframe)
+                    eulerKeyframe = AnimDocument.EulerKeyframe(frame, frameRate)
+                    self.timeline.addCurveKeyframe(time, layerFrame[0], eulerKeyframe)
                 except AssertionError, e: pass
+
+                # Active frame
                 try:
-                    # Active frame
-                    isActiveKeyframe = AnimDocument.IsActiveKeyframe(frame, self.swf.frameRate)
-                    self.timeline.addCurveKeyframe(f/self.swf.frameRate, objects.byId(frame.char.id)[0], AnimType.ISACTIVE, isActiveKeyframe)
+                    isActiveKeyframe = AnimDocument.IsActiveKeyframe(frame, frameRate)
+                    self.timeline.addCurveKeyframe(time, layerFrame[0], isActiveKeyframe)
                 except AssertionError, e: pass
+
+                # FrameKeyframe
+                # if layer has more than one frame, add a frameKeyframe to it
+                if (len(layerFrame[0].children) > 1):
+                    try:
+                        frameKeyframe = AnimDocument.FrameKeyframe(frame, frameRate)
+                        self.timeline.addCurveKeyframe(time, layerFrame[0], frameKeyframe)
+                    except AssertionError, e:
+                        print("FrameKeyframe Error: " + str(e))
 
         logging.info('<Anim> Optmizing curves...')
         c_before = sum([1 for c in self.timeline.curves])
@@ -339,7 +370,7 @@ class AnimDocument(object):
                 tag = 'm_ScaleCurves'
             elif (curve.type == AnimType.EULER):
                 tag = 'm_EulerCurves'
-            elif (curve.type == AnimType.ISACTIVE):
+            elif (curve.type == AnimType.ISACTIVE or curve.type == AnimType.FRAME):
                 tag = 'm_FloatCurves'
 
             logging.info('<Anim> Merging {} into template'.format(curve))

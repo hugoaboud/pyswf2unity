@@ -14,10 +14,10 @@
 * Optional exporting multiple frames on a single .svg file
 * Curve optimization: Remove last if only two equal keyframes
 * Curve optimization: Remove default keyframe if it's the only one
+* FrameKeyframe for animating depth group on Unity (customizable path)
 
 ##### todo + known bugs
-* Center around first frame of given character
-* FrameKeyframe for selecting layer to display on Unity, configurable path
+* Optional center around first frame of selected character
 * BUG: MorphShape color is wrong, should come from fillStyles
 
 ##### no-features

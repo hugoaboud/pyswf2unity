@@ -20,7 +20,7 @@ logging.info("")
 # Output Folder
 alias = SWF_FILE.split('.')[0];
 rootFolder = os.path.dirname(os.path.abspath(__file__))
-outFolder = '{}/{}2'.format(rootFolder,alias)+"c"
+outFolder = '{}/{}2'.format(rootFolder,alias)+"d"
 logging.info('\t<root folder>\t"{}"'.format(rootFolder))
 logging.info('\t<output folder>\t"{}"'.format(outFolder))
 if os.path.exists(outFolder):
@@ -44,9 +44,9 @@ logging.info("")
 logger.setLevel(logging.INFO)
 swf = SWFDocument("{}/{}".format(rootFolder, SWF_FILE), depthNames = {1:'tail',3:'hat',4:'ear'})
 svg = SVGDocument(swf)
+logger.setLevel(logging.DEBUG)
 anim = AnimDocument(swf, svg)
 svg.export(outFolder)
-logger.setLevel(logging.DEBUG)
 anim.export(rootFolder, outFolder)
 
 quit()

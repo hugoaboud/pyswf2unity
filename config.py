@@ -5,6 +5,9 @@ SWF_FILE = 'tests/elefanto_body_nobody.swf'
 # Templates
 ANIM_TEMPLATE = 'templates/template.anim'
 
+#
+FRAMEKEYFRAME_PATH = ''
+
 # SWF to SVG conversion scale
 unit_divisor=20.0
 
