@@ -100,7 +100,7 @@ class SWFDocument(object):
 
             # [DefineSprite]
             elif (tag.type == 39):
-                lastDefinedSprite = Sprite(lastDefinedShape)
+                lastDefinedSprite = SWFDocument.Sprite(tag, lastDefinedShape)
                 for tagtag in tag.tags:
                     # [PlaceObejct2]
                     if (tagtag.type == 26):
@@ -126,14 +126,15 @@ class SWFDocument(object):
                     # If another char is in this depth, remove it and refer to the new
                     # Also set sharedDepth so SVGDocument can group these shapes into layered files (optional)
                     if (char != None and char.id != tag.characterId):
-                        logging.debug("<SWF> Removing [CHAR|{}] from depth {}".format(char.id,tag.depth))
+                        logging.debug("<SWF> Removing >{}< from depth {}".format(char,tag.depth))
                         char.depth = -1
                         self.frames[f].append(SWFDocument.Frame(f, char, None, -1))
                     # Find new char and set depth
                     char = self.getCharacterById(tag.characterId)
                     if (char != None):
-                        logging.debug("<SWF> Moving [CHAR|{}] to depth {}".format(tag.characterId,tag.depth))
+                        logging.debug("<SWF> Moving >{}< to depth {}".format(char,tag.depth))
                         char.depth = tag.depth
+                        logging.debug("<SWF> new depth: {}".format(char.depth))
                         if (tag.depth not in self.depthGroups):
                             self.depthGroups[tag.depth] = list()
                         if (char.id not in self.depthGroups[tag.depth]):
@@ -152,7 +153,7 @@ class SWFDocument(object):
                     if (isinstance(char,SWFDocument.Sprite)): matrix = matrix * char.matrix
                     elif (isinstance(char,SWFDocument.Shape)): matrix = matrix * char.getCenterMatrix()
 
-                logging.debug("<SWF> f{} [CHAR|{}] matrix: {}, depth: {}".format(f, tag.characterId, matrix, tag.depth))
+                logging.debug("<SWF> f{} >{}< matrix: {}, depth: {}".format(f, char, matrix, tag.depth))
                 self.frames[f].append(SWFDocument.Frame(f, char, matrix, tag.depth))
 
             # [ShowFrame]
@@ -173,10 +174,10 @@ class SWFDocument(object):
         for sprite in self.sprites:
             logging.debug('\t{}'.format(sprite))
         logging.debug("<SWF> Frames:")
-        for f, frame in enumerate(self.frames):
+        for f, frames in enumerate(self.frames):
             logging.debug("\t[frame{}]".format(f))
-            for k, keyframe in enumerate(frame):
-                logging.debug("\t\t[key{}] : char {} : matrix {} : depth {}".format(k, keyframe.char.nametag(), keyframe.matrix, keyframe.depth))
+            for f, frame in enumerate(frames):
+                logging.debug("\t\t{} : matrix {} : depth {}".format(frame.char, frame.matrix, frame.depth))
 
     def getCharacterById(self, id):
         shape = [s for s in self.shapes if s.id == id]

@@ -1,12 +1,15 @@
 import logging
 
-SWF_FILE = 'tests/elefanto_body_nobody.swf'
+SWF_FILE = 'tests/elefanto.swf'
+DEPTH_NAMES = {}
 
 # Templates
 ANIM_TEMPLATE = 'templates/template.anim'
 
 #
-FRAMEKEYFRAME_PATH = ''
+class FRAMEKEYFRAME:
+    ATTRIBUTE = '_frame'
+    GUID = '11ab2dd9dbe985a45aa7a75337fa6215'
 
 # SWF to SVG conversion scale
 unit_divisor=20.0

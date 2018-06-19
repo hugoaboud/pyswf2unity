@@ -6,7 +6,7 @@ from config import SWF_FILE, ANIM_TEMPLATE, TERMINAL_LOG_LEVEL
 from swf_doc import SWFDocument
 from svg import SVGDocument
 from anim import AnimDocument
-from config import ANIM_TEMPLATE
+from config import ANIM_TEMPLATE, DEPTH_NAMES
 
 # Logging
 logger = logging.getLogger()
@@ -20,7 +20,7 @@ logging.info("")
 # Output Folder
 alias = SWF_FILE.split('.')[0];
 rootFolder = os.path.dirname(os.path.abspath(__file__))
-outFolder = '{}/{}2'.format(rootFolder,alias)+"d"
+outFolder = '{}/{}'.format(rootFolder,alias)
 logging.info('\t<root folder>\t"{}"'.format(rootFolder))
 logging.info('\t<output folder>\t"{}"'.format(outFolder))
 if os.path.exists(outFolder):
@@ -42,7 +42,7 @@ logging.info('\t<logfile>\t"{}"'.format('{}/{}/conversion.log'.format(rootFolder
 logging.info("")
 
 logger.setLevel(logging.INFO)
-swf = SWFDocument("{}/{}".format(rootFolder, SWF_FILE), depthNames = {1:'tail',3:'hat',4:'ear'})
+swf = SWFDocument("{}/{}".format(rootFolder, SWF_FILE), depthNames = DEPTH_NAMES)
 svg = SVGDocument(swf)
 logger.setLevel(logging.DEBUG)
 anim = AnimDocument(swf, svg)

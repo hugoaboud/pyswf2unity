@@ -1,7 +1,7 @@
 import logging
 import yaml
 
-from config import ANIM_TEMPLATE, FRAMEKEYFRAME_PATH
+from config import ANIM_TEMPLATE, FRAMEKEYFRAME
 from model import AnimType
 
 class AnimDocument(object):
@@ -25,9 +25,9 @@ class AnimDocument(object):
                 dump['classID'] = 1
                 dump['script'] = dict({'fileID':0})
             elif (self.type == AnimType.FRAME):
-                dump['attribute'] = 'frame'
-                dump['classID'] = 1
-                dump['script'] = dict({'fileID':0})
+                dump['attribute'] = FRAMEKEYFRAME.ATTRIBUTE
+                dump['classID'] = 114
+                dump['script'] = dict({'fileID':11500000, 'guid':FRAMEKEYFRAME.GUID, 'type':3})
             return dump
 
         def addKeyframe(self, keyframe):
@@ -76,16 +76,22 @@ class AnimDocument(object):
             return "[{}|{}]".format(self.object.name, AnimType.Name(self.type))
 
     class Keyframe (object):
-        def __init__(self, frame, frameRate):
+        def __init__(self, frame, frameRate, discrete = False):
             self.time = frame.f / frameRate
+            self.discrete = discrete
         def dump(self):
             dump = dict()
             dump['serializedVersion'] = 2
             dump['time'] = self.time
             dump['value'] = dict({'x': 0, 'y': 0, 'z': 0})
-            dump['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-            dump['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
-            dump['tangentMode'] = 0
+            if (self.discrete):
+                dump['inSlope'] = dict({'x': 'Infinity', 'y': 'Infinity', 'z': 'Infinity'})
+                dump['outSlope'] = dict({'x': 'Infinity', 'y': 'Infinity', 'z': 'Infinity'})
+                dump['tangentMode'] = 103
+            else:
+                dump['inSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
+                dump['outSlope'] = dict({'x': 0, 'y': 0, 'z': 0})
+                dump['tangentMode'] = 0
             return dump
         def set(self, keyframe):
             keyframe.time = self.time
@@ -98,10 +104,10 @@ class AnimDocument(object):
             return None
 
     class PositionKeyframe(Keyframe):
-        def __init__(self, frame, frameRate):
+        def __init__(self, frame, frameRate, discrete = False):
             assert frame.matrix != None
             self.position = frame.matrix.getPosition()
-            super(AnimDocument.PositionKeyframe, self).__init__(frame, frameRate)
+            super(AnimDocument.PositionKeyframe, self).__init__(frame, frameRate, discrete)
         def dump(self):
             dump = super(AnimDocument.PositionKeyframe, self).dump()
             dump['value']['x'] = self.position[0]
@@ -119,10 +125,10 @@ class AnimDocument(object):
             return self.position == [0,0]
 
     class ScaleKeyframe(Keyframe):
-        def __init__(self, frame, frameRate):
+        def __init__(self, frame, frameRate, discrete = False):
             assert frame.matrix != None
             self.scale = frame.matrix.getScale()
-            super(AnimDocument.ScaleKeyframe, self).__init__(frame, frameRate)
+            super(AnimDocument.ScaleKeyframe, self).__init__(frame, frameRate, discrete)
         def dump(self):
             dump = super(AnimDocument.ScaleKeyframe, self).dump()
             dump['value']['x'] = self.scale[0]
@@ -140,10 +146,10 @@ class AnimDocument(object):
             return self.scale == [1,1]
 
     class EulerKeyframe(Keyframe):
-        def __init__(self, frame, frameRate):
+        def __init__(self, frame, frameRate, discrete = False):
             assert frame.matrix != None
             self.euler = frame.matrix.getEuler()
-            super(AnimDocument.EulerKeyframe, self).__init__(frame, frameRate)
+            super(AnimDocument.EulerKeyframe, self).__init__(frame, frameRate, discrete)
         def dump(self):
             dump = super(AnimDocument.EulerKeyframe, self).dump()
             dump['value']['z'] = self.euler
@@ -160,13 +166,12 @@ class AnimDocument(object):
             return self.euler == 0
 
     class IsActiveKeyframe(Keyframe):
-        def __init__(self, frame, frameRate):
-            super(AnimDocument.IsActiveKeyframe, self).__init__(frame, frameRate)
+        def __init__(self, frame, frameRate, discrete = True):
+            super(AnimDocument.IsActiveKeyframe, self).__init__(frame, frameRate, True)
             self.active = 1.0 if frame.depth >= 0 else 0.0
         def dump(self):
             dump = super(AnimDocument.IsActiveKeyframe, self).dump()
             dump['value'] = self.active
-            dump['tangentMode'] = 103
             dump['inSlope'] = 'Infinity'
             dump['outSlope'] = 'Infinity'
             return dump
@@ -182,8 +187,8 @@ class AnimDocument(object):
             return self.active == 1.0
 
     class FrameKeyframe(Keyframe):
-        def __init__(self, frame, frameRate):
-            super(AnimDocument.FrameKeyframe, self).__init__(frame, frameRate)
+        def __init__(self, frame, frameRate, discrete = True):
+            super(AnimDocument.FrameKeyframe, self).__init__(frame, frameRate, True)
             if frame.depth >= 0:
                 self.f = frame.f
             else:
@@ -191,7 +196,6 @@ class AnimDocument(object):
         def dump(self):
             dump = super(AnimDocument.FrameKeyframe, self).dump()
             dump['value'] = self.f
-            dump['tangentMode'] = 103
             dump['inSlope'] = 'Infinity'
             dump['outSlope'] = 'Infinity'
             return dump
@@ -284,28 +288,30 @@ class AnimDocument(object):
             for frame in frames:
                 frameRate = self.swf.frameRate
                 time = f/frameRate
+                if not frame.char: continue
                 layerFrame = objects.byId(frame.char.id)
+                discrete = len(layerFrame) > 1
                 try:
                     # Position
-                    positionKeyframe = AnimDocument.PositionKeyframe(frame, frameRate)
+                    positionKeyframe = AnimDocument.PositionKeyframe(frame, frameRate, discrete)
                     self.timeline.addCurveKeyframe(time, layerFrame[0], positionKeyframe)
                 except AssertionError, e: pass
 
                 # Scale
                 try:
-                    scaleKeyframe = AnimDocument.ScaleKeyframe(frame, frameRate)
+                    scaleKeyframe = AnimDocument.ScaleKeyframe(frame, frameRate, discrete)
                     self.timeline.addCurveKeyframe(time, layerFrame[0], scaleKeyframe)
                 except AssertionError, e: pass
 
                 # Euler (rotation)
                 try:
-                    eulerKeyframe = AnimDocument.EulerKeyframe(frame, frameRate)
+                    eulerKeyframe = AnimDocument.EulerKeyframe(frame, frameRate, discrete)
                     self.timeline.addCurveKeyframe(time, layerFrame[0], eulerKeyframe)
                 except AssertionError, e: pass
 
                 # Active frame
                 try:
-                    isActiveKeyframe = AnimDocument.IsActiveKeyframe(frame, frameRate)
+                    isActiveKeyframe = AnimDocument.IsActiveKeyframe(frame, frameRate, discrete)
                     self.timeline.addCurveKeyframe(time, layerFrame[0], isActiveKeyframe)
                 except AssertionError, e: pass
 
@@ -313,7 +319,7 @@ class AnimDocument(object):
                 # if layer has more than one frame, add a frameKeyframe to it
                 if (len(layerFrame[0].children) > 1):
                     try:
-                        frameKeyframe = AnimDocument.FrameKeyframe(frame, frameRate)
+                        frameKeyframe = AnimDocument.FrameKeyframe(frame, frameRate, discrete)
                         self.timeline.addCurveKeyframe(time, layerFrame[0], frameKeyframe)
                     except AssertionError, e:
                         print("FrameKeyframe Error: " + str(e))
@@ -324,6 +330,7 @@ class AnimDocument(object):
 
         for curve in self.timeline.curves:
             curve.optimize()
+        self.timeline.curves = [c for c in self.timeline.curves if len(c.keyframes)]
 
         c_after = sum([1 for c in self.timeline.curves])
         k_after = sum([sum([1 for k in c.keyframes]) for c in self.timeline.curves])
@@ -373,7 +380,7 @@ class AnimDocument(object):
             elif (curve.type == AnimType.ISACTIVE or curve.type == AnimType.FRAME):
                 tag = 'm_FloatCurves'
 
-            logging.info('<Anim> Merging {} into template'.format(curve))
+            logging.debug('<Anim> Merging {} into template'.format(curve))
             anim['AnimationClip'][tag].append(curve.dump())
 
         logging.info("<Anim> Exporting animation to {}.anim".format(self.swf.alias))

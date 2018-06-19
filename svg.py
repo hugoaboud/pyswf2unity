@@ -116,7 +116,7 @@ class SVGDocument(object):
             frame = SVGDocument.Frame(len(self.frames),id)
             self.frames.append(frame)
         def __str__(self):
-            return self.name
+            return str(self.name)
         @staticmethod
         def getFrameById(layers, id):
             for layer in layers:
@@ -160,8 +160,12 @@ class SVGDocument(object):
                         logging.info("<SVG> Exporting layer {} frame {} to {}_{}.svg".format(layer,f,layer,f))
                         open('{}/{}_{}.svg'.format(folder,layer,f), 'wb').write(self.exporter.export_frame(frame, self.swf.swf).read())
                 else:
-                    logging.info("<SVG> Exporting layer {} to {}.svg".format(layer,layer))
-                    open('{}/{}.svg'.format(folder,layer), 'wb').write(self.exporter.export_layer(layer, self.swf.swf).read())
+                    if (len(layer.frames) > 1):
+                        logging.info("<SVG> Exporting animated layer {} to {}_f.svg".format(layer,layer))
+                        open('{}/{}_f.svg'.format(folder,layer), 'wb').write(self.exporter.export_layer(layer, self.swf.swf).read())
+                    else:
+                        logging.info("<SVG> Exporting layer {} to {}.svg".format(layer,layer))
+                        open('{}/{}.svg'.format(folder,layer), 'wb').write(self.exporter.export_layer(layer, self.swf.swf).read())
         else:
             for shape in self.swf.shapes:
                 logging.info("<SVG> Exporting shape {} to {}.svg".format(shape,shape.id))

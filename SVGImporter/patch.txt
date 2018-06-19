@@ -1,0 +1,15 @@
+## SVG Importer Layer by Group ID patch ##
+
+> Add SVGFrameRendererEditor.cs to "Editor" folder
+> SVGParser.cs:474:Create SVGGroupElement instead of SVGElement
+> SVGGraphics.cs:+19:
+	public static SVGGroupElement currentGroup;
+> SVGGraphics.cs:+84:
+	if (currentGroup != null)
+	{
+        	currentGroup.AddShapes(shapes.ToArray());
+		return;
+	}
+> SVGRenderer.cs:402: Make PrepareForRendering() virtual
+> SVGRenderer.cs:536: Make GenerateMesh() virtual
+> SVGRendererEditor.cs:57: Change OnEnable() to protected
