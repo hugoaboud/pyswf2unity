@@ -41,14 +41,13 @@ logging.info('\t<logfile>\t"{}"'.format('{}/{}/conversion.log'.format(rootFolder
 
 logging.info("")
 
-logger.setLevel(logging.INFO)
-swf = SWFDocument("{}/{}".format(rootFolder, SWF_FILE), depthNames = DEPTH_NAMES)
+logger.setLevel(logging.DEBUG)
+swf = SWFDocument("{}/{}".format(rootFolder, SWF_FILE))
 svg = SVGDocument(swf)
 logger.setLevel(logging.DEBUG)
 anim = AnimDocument(swf, svg)
 svg.export(outFolder)
 anim.export(rootFolder, outFolder)
-
 quit()
 
-SWF2Unity.do(swf,svg,anim)
+quit()

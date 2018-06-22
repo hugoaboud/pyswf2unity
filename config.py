@@ -1,6 +1,6 @@
 import logging
 
-SWF_FILE = 'tests/elefanto.swf'
+SWF_FILE = 'tests/monica_walk.swf'
 DEPTH_NAMES = {}
 
 # Templates
