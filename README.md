@@ -15,6 +15,7 @@
 * Curve optimization: Remove last if only two equal keyframes
 * Curve optimization: Remove default keyframe if it's the only one
 * FrameKeyframe for animating depth group on Unity (customizable path)
+* Integration with SVG Importer for animated SVG files
 
 ##### todo + known bugs
 * Optional center around first frame of selected character
