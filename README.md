@@ -1,5 +1,5 @@
 ## pySWF2Unity
-### a lib for converting .swf vector animations to .svg + .anim (for Unity)
+### python lib for converting .swf vector animations to .svg + Unity's .anim
 
 ##### dependencies
 * pyswf
